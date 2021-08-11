@@ -87,6 +87,8 @@ void *trdClientToCIAA(void *arg)
         }
 
         readBufClt[nBytesReadClt] = 0x00;
+        
+        /*TODO: Aca deberia enviar trama por el socket */
         printf("nBytesReadClt %d readBufClt:%s\n", nBytesReadClt, readBufClt);
 
         // Cerramos conexion con cliente
@@ -105,6 +107,7 @@ int main()
     /*====Configuraciones e inicializaciones===*/
 
     /*SOCKET*/
+    /*TODO: Revisar si esto va en el thread main o en *trdClientToCIAA*/
     /*Se crea el socket*/
     int sckt = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -154,7 +157,7 @@ int main()
     }
 
 
-    /*Por aca debo elegir un thread que pueda manejar las interrupciones
+    /*TODO:  El thread que maneja las interrupciones sera el puerto serie. Aquel que no es bloqueante.
     bloquear
     crear/lanzar thread
     desbloquear*/
