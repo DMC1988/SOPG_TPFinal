@@ -54,7 +54,10 @@ void *trdCIAAToClient(void *arg)
             /*Lo envio por el socket*/
             write(newfd, readBufCIAA, sizeof(readBufCIAA)); // enviar por socket
             printf("write: %s", readBufCIAA);
-            /*FIXME: Hasta aca llega pero parece que no lo envia por el socket*/
+
+            /*
+            HASTA ACA LLEGA, ENVIA HACIA EL CLIENTE Y LA PAGINA RACCIONA0
+            */
         }
         sleep(0.5);
     }
@@ -74,12 +77,18 @@ void *trdClientToCIAA(void *arg)
     {
         /* Acepta nuevas conexiones*/
         addr_len = sizeof(struct sockaddr_in);
-        if ((newfd = accept(sckt, (struct sockaddr *)&clientaddr, &addr_len)) == -1)
+        newfd = accept(sckt, (struct sockaddr *)&clientaddr, &addr_len);
+        if (newfd == -1)
         {
             perror("error en accept");
             exit(1);
         }
 
+        char ipClient[32];
+        inet_ntop(AF_INET, &(clientaddr.sin_addr), ipClient, sizeof(ipClient));
+        printf("server:  conexion desde:  %s\n", ipClient);
+
+        //FIXME: Error Bad File Descriptor
         /* Lee mensaje del cliente */
         if ((nBytesReadClt = read(newfd, readBufClt, sizeof(readBufClt))) == -1)
         {
@@ -87,10 +96,10 @@ void *trdClientToCIAA(void *arg)
             exit(1);
         }
 
-        readBufClt[nBytesReadClt] = 0x00;
-        
-        /*TODO: Aca deberia enviar trama por el socket */
+        //readBufClt[nBytesReadClt] = 0x00;
+
         printf("nBytesReadClt %d readBufClt:%s\n", nBytesReadClt, readBufClt);
+        serial_send(readBufClt, nBytesReadClt);
 
         // Cerramos conexion con cliente
         close(newfd);
@@ -106,11 +115,15 @@ int main()
     pthread_t thing1, thing2;
 
     /*====Configuraciones e inicializaciones===*/
-
     /*SOCKET*/
     /*TODO: Revisar si esto va en el thread main o en *trdClientToCIAA*/
     /*Se crea el socket*/
-    int sckt = socket(AF_INET, SOCK_STREAM, 0);
+    sckt = socket(AF_INET, SOCK_STREAM, 0);
+
+    if(sckt == -1){
+        printf("Socket error\n");
+        exit(1);
+    }
 
     /*Cargamos datos de IP:PORT del server*/
     bzero((char *)&serveraddr, sizeof(serveraddr));
@@ -123,7 +136,7 @@ int main()
         return 1;
     }
 
-    /*Se abre el puerto*/
+    /*Se asociar socket al programa*/
     if (bind(sckt, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1)
     {
         close(sckt);
@@ -131,24 +144,12 @@ int main()
         return 1;
     }
 
-    /*Seteas socket en modo Listening*/
+    /*Setea el socket en modo listening, atiende la conexion del socket*/
     if (listen(sckt, 10) == -1) // backlog=10
     {
         perror("Error en listen");
         exit(1);
     }
-
-    // Ejecutamos accept() para recibir conexiones entrantes
-    addr_len = sizeof(struct sockaddr_in);
-    if ((newfd = accept(sckt, (struct sockaddr *)&clientaddr, &addr_len)) == -1)
-    {
-        perror("error en accept");
-        exit(1);
-    }
-
-    char ipClient[32];
-    inet_ntop(AF_INET, &(clientaddr.sin_addr), ipClient, sizeof(ipClient));
-    printf("server:  conexion desde:  %s\n", ipClient);
 
     /*PUERTO SERIE*/
     /* Apertura del puerto serie*/
@@ -157,19 +158,16 @@ int main()
         printf("No se pudo abrir el puerto serie.");
     }
 
-
     /*TODO:  El thread que maneja las interrupciones sera el puerto serie. Aquel que no es bloqueante.
     bloquear
     crear/lanzar thread
     desbloquear*/
-    
+
     pthread_create(&thing1, NULL, trdCIAAToClient, NULL);
-    pthread_create (&thing2, NULL, trdClientToCIAA, NULL);
+    pthread_create(&thing2, NULL, trdClientToCIAA, NULL);
 
     pthread_join(thing1, NULL);
-    pthread_join (thing2, NULL);
+    pthread_join(thing2, NULL);
 
     return 0;
-
-    //pthread_create (&thread2, NULL, threadSocket, NULL);
 }
