@@ -54,6 +54,7 @@ void *trdCIAAToClient(void *arg)
             /*Lo envio por el socket*/
             write(newfd, readBufCIAA, sizeof(readBufCIAA)); // enviar por socket
             printf("write: %s", readBufCIAA);
+            /*FIXME: Hasta aca llega pero parece que no lo envia por el socket*/
         }
         sleep(0.5);
     }
@@ -102,7 +103,7 @@ int main()
 {
     /*====Variables====*/
     /*THREADS*/
-    pthread_t thing1, thinig2;
+    pthread_t thing1, thing2;
 
     /*====Configuraciones e inicializaciones===*/
 
@@ -163,10 +164,10 @@ int main()
     desbloquear*/
     
     pthread_create(&thing1, NULL, trdCIAAToClient, NULL);
-    //pthread_create (&thing1, NULL, trdClientToCIAA, NULL);
+    pthread_create (&thing2, NULL, trdClientToCIAA, NULL);
 
     pthread_join(thing1, NULL);
-    //pthread_join (thing2, NULL);
+    pthread_join (thing2, NULL);
 
     return 0;
 
