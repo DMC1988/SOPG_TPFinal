@@ -5,6 +5,7 @@
 #include "SerialManager.h"
 
 #include <unistd.h>
+#include <signal.h>
 #include <pthread.h>
 
 #include <errno.h>
@@ -14,55 +15,50 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/msg.h>
 
 #define BAUDRATE 115200
 #define SERIALPORT 1
+#define ERRNOCNT -1  //Señal de error de funciones.
+#define SLPDELAY 0.5 //Delay para el poll del puerto serie.
 
 /*====VARIABLES GLOBALES====*/
+/*====Variables====*/
+/*THREADS*/
+pthread_t thread1;
+
 /*SOCKET*/
 socklen_t addr_len;
 struct sockaddr_in clientaddr;
 struct sockaddr_in serveraddr;
 
-int newfd;
+int newfd = ERRNOCNT; //Valor inicial -1 para forzar la primer conexion.
 int sckt;
 
-/*
-Thread para enviar datos desde la EDUCIAA hacia el cliente.
+/*====PROTOTIPOS====*/
+void bloquearSign(void);
+void desbloquearSign(void);
 
-Lee del puerto serie las tramas de datos enviados por la EDUCIAA. Luego lo pasa al socket para que
-este lo envie al cliente mediante protocolo TCP.
-*/
-void *trdCIAAToClient(void *arg)
+/*====APLICACION===========*/
+
+/* Handler de interrupcion*/
+void signalHandler(int sig)
 {
-    /*PUERTO SERIE*/
-    unsigned char readBufCIAA[64];
-    unsigned int nBytesReadCIAA = 0;
-    char mode[] = {'8', 'N', '1', 0};
 
-    while (1)
-    {
-        /*Polling del puerto serie*/
-        nBytesReadCIAA = serial_receive(readBufCIAA, sizeof(readBufCIAA));
+    /*No importa que interrupción llege se debe
+   finalizar el programa correctamente*/
 
-        /*Recibo dato y imprimo/envio*/
-        if (nBytesReadCIAA != 0)
-        {
-            /*Imprimo el dato recibido*/
-            printf("nBytesReadCIAA: %d, recibi: %s \n", nBytesReadCIAA, readBufCIAA);
+    /*Cerrar puerto serie*/
+    serial_close();
 
-            /*Lo envio por el socket*/
-            write(newfd, readBufCIAA, sizeof(readBufCIAA)); // enviar por socket
-            printf("write: %s", readBufCIAA);
+    /*Cierro el socket TCP*/
+    close(newfd);
 
-            /*
-            HASTA ACA LLEGA, ENVIA HACIA EL CLIENTE Y LA PAGINA RACCIONA0
-            */
-        }
-        sleep(0.5);
-    }
+    //Matar el thread.
+    pthread_cancel(thread1);
 
-    return NULL;
+    /*Terminar el programar*/
+    exit(1);
 }
 
 /*
@@ -75,8 +71,11 @@ void *trdClientToCIAA(void *arg)
 
     while (1)
     {
+        nBytesReadClt = 0; //Inicializo la variable.
+
         /* Acepta nuevas conexiones*/
         addr_len = sizeof(struct sockaddr_in);
+
         newfd = accept(sckt, (struct sockaddr *)&clientaddr, &addr_len);
         if (newfd == -1)
         {
@@ -88,21 +87,24 @@ void *trdClientToCIAA(void *arg)
         inet_ntop(AF_INET, &(clientaddr.sin_addr), ipClient, sizeof(ipClient));
         printf("server:  conexion desde:  %s\n", ipClient);
 
-        //FIXME: Error Bad File Descriptor
-        /* Lee mensaje del cliente */
-        if ((nBytesReadClt = read(newfd, readBufClt, sizeof(readBufClt))) == -1)
+        /*Mientras la conexion esta establecida recibe datos.
+            Si se desconecta vuelve al accept() arriba.*/
+        while (nBytesReadClt != ERRNOCNT)
         {
-            perror("Error leyendo mensaje en socket");
-            exit(1);
+
+            /* Lee mensaje del cliente */
+            if ((nBytesReadClt = read(newfd, readBufClt, sizeof(readBufClt))) == -1)
+            {
+                perror("Error leyendo mensaje en socket");
+                exit(1);
+            }
+
+            readBufClt[nBytesReadClt] = 0x00;
+
+            /*Envia mensaje a EDUCIAA por UART*/
+            // printf("nBytesReadClt %d readBufClt:%s\n", nBytesReadClt, readBufClt);
+            serial_send(readBufClt, nBytesReadClt);
         }
-
-        //readBufClt[nBytesReadClt] = 0x00;
-
-        printf("nBytesReadClt %d readBufClt:%s\n", nBytesReadClt, readBufClt);
-        serial_send(readBufClt, nBytesReadClt);
-
-        // Cerramos conexion con cliente
-        close(newfd);
     }
 
     return NULL;
@@ -110,17 +112,33 @@ void *trdClientToCIAA(void *arg)
 
 int main()
 {
-    /*====Variables====*/
-    /*THREADS*/
-    pthread_t thing1, thing2;
+    /*PUERTO SERIE*/
+    unsigned char readBufCIAA[64];
+    unsigned int nBytesReadCIAA = 0;
+    char mode[] = {'8', 'N', '1', 0};
 
     /*====Configuraciones e inicializaciones===*/
+    /*CONFIGURACION DEL MANEJO DE SIGNALS*/
+    struct sigaction sa; // Estructura para la configuración de interrupcion.
+
+    sa.sa_handler = signalHandler;
+    sa.sa_flags = SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+
+    if ((sigaction(SIGINT, &sa, NULL) == -1) || (sigaction(SIGTERM, &sa, NULL) == -1))
+    {
+
+        perror("sigaction");
+        exit(1);
+    }
+
     /*SOCKET*/
     /*TODO: Revisar si esto va en el thread main o en *trdClientToCIAA*/
     /*Se crea el socket*/
     sckt = socket(AF_INET, SOCK_STREAM, 0);
 
-    if(sckt == -1){
+    if (sckt == -1)
+    {
         printf("Socket error\n");
         exit(1);
     }
@@ -133,7 +151,7 @@ int main()
     if (inet_pton(AF_INET, "127.0.0.1", &(serveraddr.sin_addr)) <= 0)
     {
         fprintf(stderr, "ERROR IP de server invalido\r\n");
-        return 1;
+        exit(1);
     }
 
     /*Se asociar socket al programa*/
@@ -141,7 +159,7 @@ int main()
     {
         close(sckt);
         perror("Erro al abrir el puerto.");
-        return 1;
+        exit(1);
     }
 
     /*Setea el socket en modo listening, atiende la conexion del socket*/
@@ -158,16 +176,62 @@ int main()
         printf("No se pudo abrir el puerto serie.");
     }
 
-    /*TODO:  El thread que maneja las interrupciones sera el puerto serie. Aquel que no es bloqueante.
-    bloquear
-    crear/lanzar thread
-    desbloquear*/
+    /*Bloquear señales para trdClientToCIAA*/
+    bloquearSign();
 
-    pthread_create(&thing1, NULL, trdCIAAToClient, NULL);
-    pthread_create(&thing2, NULL, trdClientToCIAA, NULL);
+    pthread_create(&thread1, NULL, trdClientToCIAA, NULL);
 
-    pthread_join(thing1, NULL);
-    pthread_join(thing2, NULL);
+    /*Desbloquear señales para trdClientToCIAA*/
+    desbloquearSign();
+
+    printf("Listo para recibir señales.");
+
+    /*Recepcion de datos por puerto serie*/
+    while (1)
+    {
+        /*Polling del puerto serie*/
+        nBytesReadCIAA = serial_receive(readBufCIAA, sizeof(readBufCIAA));
+
+        /*Recibo dato y imprimo/envio*/
+        if (nBytesReadCIAA != 0)
+        {
+            /*Imprimo el dato recibido*/
+            //printf("nBytesReadCIAA: %d, recibi: %s \n", nBytesReadCIAA, readBufCIAA);
+
+            /*Lo envio por el socket*/
+            write(newfd, readBufCIAA, sizeof(readBufCIAA)); // enviar por socket
+            //TODO: Manejar errores de write. Si le escribo al puerto cerrado me devuelve un signal y debo ver como lo manejo.
+            printf("write: %s", readBufCIAA);
+        }
+        sleep(SLPDELAY);
+    }
 
     return 0;
+}
+
+/*====FUNCIONES AUXILIARES====*/
+/*
+    FUNCION PARA EL BLOQUEO DE SIGNALS
+*/
+void bloquearSign(void)
+{
+    sigset_t set;
+    int s;
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    //sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+}
+
+/*
+    FUNCION PARA EL DESBLOQUEO DE SIGNALS
+*/
+void desbloquearSign(void)
+{
+    sigset_t set;
+    int s;
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    //sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 }
