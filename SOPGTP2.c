@@ -133,7 +133,6 @@ int main()
     }
 
     /*SOCKET*/
-    /*TODO: Revisar si esto va en el thread main o en *trdClientToCIAA*/
     /*Se crea el socket*/
     sckt = socket(AF_INET, SOCK_STREAM, 0);
 
