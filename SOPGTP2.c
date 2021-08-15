@@ -101,6 +101,8 @@ void *trdClientToCIAA(void *arg)
             // printf("nBytesReadClt %d readBufClt:%s\n", nBytesReadClt, readBufClt);
             serial_send(readBufClt, nBytesReadClt);
         }
+        
+        nBytesReadClt = 0;  // Reincio variable luego de un error de lectura.
     }
 
     return NULL;
