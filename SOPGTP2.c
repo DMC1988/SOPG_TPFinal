@@ -23,7 +23,6 @@
 #define SLPDELAY 0.5 //Delay para el poll del puerto serie.
 
 /*====VARIABLES GLOBALES====*/
-/*====Variables====*/
 /*THREADS*/
 pthread_t thread1;
 
@@ -44,9 +43,7 @@ void desbloquearSign(void);
 /* Handler de interrupcion*/
 void signalHandler(int sig)
 {
-
-    /*No importa que interrupción llege se debe
-   finalizar el programa correctamente*/
+    /*Finalizacion del progrmama al llegar SIGINT o SIGTERM*/
 
     /*Cerrar puerto serie*/
     serial_close();
@@ -58,7 +55,7 @@ void signalHandler(int sig)
     pthread_cancel(thread1);
 
     /*Terminar el programar*/
-    exit(1);
+    exit(EXIT_SUCCESS);
 }
 
 /*
@@ -67,12 +64,11 @@ Thread para enviar datos desde el cliente hacia la EDUCIAA.
 void *trdClientToCIAA(void *arg)
 {
     char readBufClt[64];
-    unsigned int nBytesReadClt;
+    unsigned int nBytesReadClt = 0; //Inicializo la variable.
 
     while (1)
     {
-        nBytesReadClt = 0; //Inicializo la variable.
-
+        
         /* Acepta nuevas conexiones*/
         addr_len = sizeof(struct sockaddr_in);
 
@@ -80,7 +76,7 @@ void *trdClientToCIAA(void *arg)
         if (newfd == -1)
         {
             perror("error en accept");
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
         char ipClient[32];
@@ -96,7 +92,7 @@ void *trdClientToCIAA(void *arg)
             if ((nBytesReadClt = read(newfd, readBufClt, sizeof(readBufClt))) == -1)
             {
                 perror("Error leyendo mensaje en socket");
-                exit(1);
+                exit(EXIT_FAILURE);
             }
 
             readBufClt[nBytesReadClt] = 0x00;
@@ -127,9 +123,8 @@ int main()
 
     if ((sigaction(SIGINT, &sa, NULL) == -1) || (sigaction(SIGTERM, &sa, NULL) == -1))
     {
-
         perror("sigaction");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     /*SOCKET*/
@@ -139,7 +134,7 @@ int main()
     if (sckt == -1)
     {
         printf("Socket error\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     /*Cargamos datos de IP:PORT del server*/
@@ -150,7 +145,7 @@ int main()
     if (inet_pton(AF_INET, "127.0.0.1", &(serveraddr.sin_addr)) <= 0)
     {
         fprintf(stderr, "ERROR IP de server invalido\r\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     /*Se asociar socket al programa*/
@@ -158,14 +153,14 @@ int main()
     {
         close(sckt);
         perror("Erro al abrir el puerto.");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     /*Setea el socket en modo listening, atiende la conexion del socket*/
     if (listen(sckt, 10) == -1) // backlog=10
     {
         perror("Error en listen");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     /*PUERTO SERIE*/
@@ -194,15 +189,20 @@ int main()
         /*Recibo dato y imprimo/envio*/
         if (nBytesReadCIAA != 0)
         {
-            /*Imprimo el dato recibido*/
-            //printf("nBytesReadCIAA: %d, recibi: %s \n", nBytesReadCIAA, readBufCIAA);
+            /*Lo envia la trama por el socker*/
+            write(newfd, readBufCIAA, sizeof(readBufCIAA));
 
-            /*Lo envio por el socket*/
-            write(newfd, readBufCIAA, sizeof(readBufCIAA)); // enviar por socket
-            //TODO: Manejar errores de write. Si le escribo al puerto cerrado me devuelve un signal y debo ver como lo manejo.
-            printf("write: %s", readBufCIAA);
+            //TODO: Gestion de error de escritura en socket.
+            //Al escribir en un socket cerrado se genera la señal SIGPIPE, tengo que gerstionar esto.
+            // if(write(newfd, readBufCIAA, sizeof(readBufCIAA)) == ERRNOCNT){
+            //             perror("Error en write");
+            //       
+            // }
+
         }
+
         sleep(SLPDELAY);
+
     }
 
     return 0;
@@ -218,7 +218,7 @@ void bloquearSign(void)
     int s;
     sigemptyset(&set);
     sigaddset(&set, SIGINT);
-    //sigaddset(&set, SIGUSR1);
+    sigaddset(&set, SIGTERM);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
 }
 
@@ -231,6 +231,6 @@ void desbloquearSign(void)
     int s;
     sigemptyset(&set);
     sigaddset(&set, SIGINT);
-    //sigaddset(&set, SIGUSR1);
+    sigaddset(&set, SIGTERM);
     pthread_sigmask(SIG_UNBLOCK, &set, NULL);
 }
