@@ -36,9 +36,14 @@ int sckt;
 
 /*VARIABLE DE CONTROL*/
 _Bool salida = 0;
+
+/*MUTEX*/
+pthread_mutex_t mutexData = PTHREAD_MUTEX_INITIALIZER;
+
 /*====PROTOTIPOS====*/
 void bloquearSign(void);
 void desbloquearSign(void);
+
 
 /*====APLICACION===========*/
 
@@ -66,12 +71,15 @@ void *trdClientToCIAA(void *arg)
         /* Acepta nuevas conexiones*/
         addr_len = sizeof(struct sockaddr_in);
 
+        /*Limito el acceso a newfd en este thread*/
+        pthread_mutex_lock (&mutexData);
         newfd = accept(sckt, (struct sockaddr *)&clientaddr, &addr_len);
         if (newfd == -1)
         {
             perror("error en accept");
             exit(EXIT_FAILURE);
         }
+        pthread_mutex_unlock (&mutexData);
 
         char ipClient[32];
         inet_ntop(AF_INET, &(clientaddr.sin_addr), ipClient, sizeof(ipClient));
@@ -185,6 +193,7 @@ int main()
         /*Recibo dato y imprimo/envio*/
         if (nBytesReadCIAA != 0)
         {
+           
             /*Mientras no haya conexion establecida no se ejecuta el write*/
             if(newfd != ERRNOCNT){
 
