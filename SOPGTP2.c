@@ -203,7 +203,7 @@ int main()
             }
 
         }
-
+  
         usleep(SLPDELAY);
     }
 
