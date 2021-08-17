@@ -20,7 +20,7 @@
 #define BAUDRATE 115200
 #define SERIALPORT 1
 #define ERRNOCNT -1  //Señal de error de funciones.
-#define SLPDELAY 0.5 //Delay para el poll del puerto serie.
+#define SLPDELAY 500000 //Delay para el poll del puerto serie, 0,5s
 
 /*====VARIABLES GLOBALES====*/
 /*THREADS*/
@@ -34,6 +34,8 @@ struct sockaddr_in serveraddr;
 int newfd = ERRNOCNT; //Valor inicial -1 para forzar la primer conexion.
 int sckt;
 
+/*VARIABLE DE CONTROL*/
+_Bool salida = 0;
 /*====PROTOTIPOS====*/
 void bloquearSign(void);
 void desbloquearSign(void);
@@ -44,18 +46,10 @@ void desbloquearSign(void);
 void signalHandler(int sig)
 {
     /*Finalizacion del progrmama al llegar SIGINT o SIGTERM*/
+    /*Setear flag de control*/
+    
+    salida = 1;
 
-    /*Cerrar puerto serie*/
-    serial_close();
-
-    /*Cierro el socket TCP*/
-    close(newfd);
-
-    //Matar el thread.
-    pthread_cancel(thread1);
-
-    /*Terminar el programar*/
-    exit(EXIT_SUCCESS);
 }
 
 /*
@@ -84,8 +78,8 @@ void *trdClientToCIAA(void *arg)
         printf("server:  conexion desde:  %s\n", ipClient);
 
         /*Mientras la conexion esta establecida recibe datos.
-            Si se desconecta vuelve al accept() arriba.*/
-        while (nBytesReadClt != ERRNOCNT)
+        Si se desconecta vuelve al accept() arriba.*/
+        while (nBytesReadClt != ERRNOCNT || nBytesReadClt != 0)
         {
 
             /* Lee mensaje del cliente */
@@ -183,7 +177,7 @@ int main()
     printf("Listo para recibir señales.");
 
     /*Recepcion de datos por puerto serie*/
-    while (1)
+    while (1 && !salida)    // Cuando salida = !1 sale del while y pasa al cierre ordenado del programa.
     {
         /*Polling del puerto serie*/
         nBytesReadCIAA = serial_receive(readBufCIAA, sizeof(readBufCIAA));
@@ -191,21 +185,31 @@ int main()
         /*Recibo dato y imprimo/envio*/
         if (nBytesReadCIAA != 0)
         {
+            /*Mientras no haya conexion establecida no se ejecuta el write*/
+            if(newfd != ERRNOCNT){
+
             /*Lo envia la trama por el socker*/
             write(newfd, readBufCIAA, sizeof(readBufCIAA));
 
-            //TODO: Gestion de error de escritura en socket.
-            //Al escribir en un socket cerrado se genera la señal SIGPIPE, tengo que gerstionar esto.
-            // if(write(newfd, readBufCIAA, sizeof(readBufCIAA)) == ERRNOCNT){
-            //             perror("Error en write");
-            //       
-            // }
+            }
 
         }
 
-        sleep(SLPDELAY);
-
+        usleep(SLPDELAY);
     }
+
+    /*Cerrar puerto serie*/
+    serial_close();
+
+    /*Cierro el socket TCP*/
+    close(newfd);
+
+    //Matar el thread.
+    pthread_cancel(thread1);
+    pthread_join(thread1,NULL);
+
+    /*Terminar el programar*/
+    exit(EXIT_SUCCESS);
 
     return 0;
 }
