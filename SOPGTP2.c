@@ -72,6 +72,7 @@ void *trdClientToCIAA(void *arg)
         addr_len = sizeof(struct sockaddr_in);
 
         /*Limito el acceso a newfd en este thread*/
+
         pthread_mutex_lock (&mutexData);
         newfd = accept(sckt, (struct sockaddr *)&clientaddr, &addr_len);
         if (newfd == -1)
@@ -103,6 +104,9 @@ void *trdClientToCIAA(void *arg)
             // printf("nBytesReadClt %d readBufClt:%s\n", nBytesReadClt, readBufClt);
             serial_send(readBufClt, nBytesReadClt);
         }
+
+        
+        close(newfd);
         
         nBytesReadClt = 0;  // Reincio variable luego de un error de lectura.
     }
@@ -193,13 +197,17 @@ int main()
         /*Recibo dato y imprimo/envio*/
         if (nBytesReadCIAA != 0)
         {
-           
+            /*Protejo la variable newfd en este thread tambien*/
+            pthread_mutex_lock (&mutexData);
+
             /*Mientras no haya conexion establecida no se ejecuta el write*/
             if(newfd != ERRNOCNT){
 
             /*Lo envia la trama por el socker*/
             write(newfd, readBufCIAA, sizeof(readBufCIAA));
-
+            
+            pthread_mutex_unlock (&mutexData);
+           
             }
 
         }
